@@ -75,9 +75,13 @@ func (s *Store) handleConn(conn net.Conn) {
 				conn.Write([]byte("+OK\r\n"))
 			}
 		case "GET", "get":
-			val, found := s.Get(args[0])
-			if found {
-				conn.Write(fmt.Appendf(nil, "%s=%s\n", args[0], string(val)))
+			if len(args) != 1 {
+				conn.Write([]byte("-ERR wrong number of arguments for 'get' command\r\n"))
+			} else {
+				val, found := s.Get(args[0])
+				if found {
+					conn.Write(fmt.Appendf(nil, "%s=%s\n", args[0], string(val)))
+				}
 			}
 		default:
 			conn.Write(fmt.Appendf(nil, "-ERR unknown command!\n"))
@@ -93,18 +97,28 @@ func (s *Store) parseCommands(msg string) (string, []string, error) {
 		return "", nil, fmt.Errorf("empty command")
 	}
 
-	splittedStr := strings.Split(msg, " ")
-	if len(splittedStr) < 2 {
-		return "", nil, fmt.Errorf("invalid Command")
-	}
-	cmd := strings.ToUpper(splittedStr[0])
-	args := splittedStr[1:]
-
-	for i := range args {
-		args[i] = strings.TrimSpace(args[i])
+	idx := strings.Index(msg, " ")
+	if idx == -1 {
+		return strings.ToUpper(msg), nil, nil
 	}
 
-	return cmd, args, nil
+	cmd := strings.ToUpper(msg[:idx])
+	rest := strings.TrimSpace(msg[idx+1:])
+	if rest == "" {
+		return cmd, nil, nil
+	}
+
+	parts := strings.SplitN(rest, " ", 2)
+
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+
+	if len(parts) == 0 || parts[0] == "" {
+		return "", nil, fmt.Errorf("missing key")
+	}
+
+	return cmd, parts, nil
 }
 
 func (s *Store) Set(key string, value []byte) {
