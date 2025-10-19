@@ -12,7 +12,7 @@ import (
 type DB interface {
 	Set(key string, value []byte)
 	Get(key string) ([]byte, bool)
-	ListenAndAccept() error
+	Start() error
 }
 
 type Config struct {
@@ -34,7 +34,7 @@ func NewStore(conf Config) DB {
 	}
 }
 
-func (s *Store) ListenAndAccept() error {
+func (s *Store) Start() error {
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%s", s.Host, s.Port))
 	if err != nil {
 		return err
@@ -46,7 +46,7 @@ func (s *Store) ListenAndAccept() error {
 			return fmt.Errorf("TCP accept error: %s", err)
 		}
 
-		fmt.Printf("new incoming connection %+v\n", conn)
+		log.Printf("[CONNECTION] New client from %s", conn.RemoteAddr())
 
 		go s.handleConn(conn)
 	}
@@ -61,7 +61,7 @@ func (s *Store) handleConn(conn net.Conn) {
 			return
 		}
 
-		cmd, args, err := s.parseTCPCommands(msg)
+		cmd, args, err := s.parseCommands(msg)
 		if err != nil {
 			fmt.Printf("TCP parse error: %s\n", err)
 		}
@@ -69,25 +69,25 @@ func (s *Store) handleConn(conn net.Conn) {
 		switch cmd {
 		case "SET", "set":
 			if len(args) < 2 {
-				conn.Write(fmt.Appendf(nil, "SET command needs a value for key %s\n", args[0]))
+				conn.Write([]byte("-ERR wrong number of arguments for 'set' command\r\n"))
+			} else {
+				s.Set(args[0], []byte(args[1]))
+				conn.Write([]byte("+OK\r\n"))
 			}
-			s.Set(args[0], []byte(args[1]))
 		case "GET", "get":
 			val, found := s.Get(args[0])
-			if !found {
-				conn.Write(fmt.Appendf(nil, "%s is undefined!\n", args[0]))
-			} else {
+			if found {
 				conn.Write(fmt.Appendf(nil, "%s=%s\n", args[0], string(val)))
 			}
 		default:
-			conn.Write(fmt.Appendf(nil, "Unknown command!\n"))
+			conn.Write(fmt.Appendf(nil, "-ERR unknown command!\n"))
 		}
 
-		fmt.Printf("Message incoming: %s\n", string(msg))
+		log.Printf("[COMMAND] %s %v", cmd, args)
 	}
 }
 
-func (s *Store) parseTCPCommands(msg string) (string, []string, error) {
+func (s *Store) parseCommands(msg string) (string, []string, error) {
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
 		return "", nil, fmt.Errorf("empty command")
@@ -131,7 +131,7 @@ func main() {
 
 	s := NewStore(conf)
 
-	err := s.ListenAndAccept()
+	err := s.Start()
 	if err != nil {
 		log.Fatal(err)
 	}
